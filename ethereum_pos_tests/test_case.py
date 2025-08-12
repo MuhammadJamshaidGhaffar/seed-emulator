@@ -12,16 +12,65 @@ class MnemonicTransactionTest(unittest.TestCase):
 
     def setUp(self):
         """Setup connection to local Ethereum node and prepare accounts"""
+        # First check if the host is reachable
+        eth_host = '10.154.0.71'
+        eth_port = 8545
+        
+        # Check if host is reachable using ping
+        import subprocess
+        import socket
+        
+        print(f"Checking if {eth_host} is reachable...")
+        try:
+            # Try to ping the host (1 packet, 1 second timeout)
+            ping_result = subprocess.run(
+                ['ping', '-c', '1', '-W', '1', eth_host],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            if ping_result.returncode != 0:
+                self.fail(f"Host {eth_host} is not reachable. Check network connectivity.")
+                
+            # Check if the port is open
+            print(f"Checking if port {eth_port} is open on {eth_host}...")
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(1)
+            result = s.connect_ex((eth_host, eth_port))
+            s.close()
+            
+            if result != 0:
+                self.fail(f"Port {eth_port} is not open on {eth_host}. Check if Ethereum node is running.")
+                
+            print(f"Host {eth_host}:{eth_port} is reachable and port is open.")
+            
+        except Exception as e:
+            self.fail(f"Connection check failed: {str(e)}")
+        
         # Connect to Ethereum node using the Wallet class
-        self.wallet = Wallet(mnemonic="great amazing fun seed lab protect network system security prevent attack future")
-        self.wallet.connectToBlockchain('http://10.154.0.71:8545')
-        
-        # Create two accounts from the mnemonic
-        self.wallet.createAccount("Account1")
-        self.wallet.createAccount("Account2")
-        
-        # Set Account1 as default
-        self.wallet.setDefaultAccount("Account1")
+        try:
+            print("Creating wallet with mnemonic...")
+            self.wallet = Wallet(mnemonic="great amazing fun seed lab protect network system security prevent attack future")
+            
+            print(f"Connecting to Ethereum node at http://{eth_host}:{eth_port}...")
+            self.wallet.connectToBlockchain(f'http://{eth_host}:{eth_port}')
+            
+            # Additional check for RPC connection
+            if not self.wallet._web3.isConnected():
+                self.fail(f"Web3 reports not connected to Ethereum node at http://{eth_host}:{eth_port}")
+                
+            print("Successfully connected to Ethereum node.")
+                
+            # Create two accounts from the mnemonic
+            print("Creating accounts from mnemonic...")
+            self.wallet.createAccount("Account1")
+            self.wallet.createAccount("Account2")
+            
+            # Set Account1 as default
+            self.wallet.setDefaultAccount("Account1")
+        except AssertionError as ae:
+            self.fail(f"Blockchain connection failed: {str(ae)}")
+        except Exception as e:
+            self.fail(f"Setup failed: {str(e)}")
         
         # Print account addresses
         print(f"Account 1: {self.wallet.getAccountAddressByName('Account1')}")
@@ -35,23 +84,55 @@ class MnemonicTransactionTest(unittest.TestCase):
 
     def _ensure_account_funded(self, account_name):
         """Make sure the account has enough ETH for testing"""
-        balance = self.wallet.getBalanceByName(account_name)
-        if balance < 0.01:  # If less than 0.01 ETH
-            try:
-                # Try to fund from coinbase
-                coinbase = self.w3.eth.coinbase
-                tx_hash = self.w3.eth.send_transaction({
-                    'from': coinbase,
-                    'to': self.wallet.getAccountAddressByName(account_name),
-                    'value': Web3.toWei(0.1, 'ether')
-                })
-                receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
-                self.assertTrue(receipt['status'], "Funding transaction failed")
-                print(f"Funded {account_name} with 0.1 ETH")
-                time.sleep(1)  # Wait for transaction to be fully processed
-            except Exception as e:
-                print(f"Warning: Could not fund account automatically: {e}")
-                print(f"Please ensure {account_name} has at least 0.01 ETH before running the test")
+        try:
+            balance = self.wallet.getBalanceByName(account_name)
+            print(f"Current balance of {account_name}: {balance} ETH")
+            
+            if balance < 0.01:  # If less than 0.01 ETH
+                print(f"Account {account_name} needs funding (balance: {balance} ETH)")
+                
+                # Try to get coinbase account
+                try:
+                    coinbase = self.w3.eth.coinbase
+                    print(f"Using coinbase account {coinbase} to fund test account")
+                    
+                    # Get coinbase balance
+                    coinbase_balance = self.w3.eth.get_balance(coinbase)
+                    print(f"Coinbase balance: {Web3.fromWei(coinbase_balance, 'ether')} ETH")
+                    
+                    if coinbase_balance < Web3.toWei(0.1, 'ether'):
+                        print(f"Warning: Coinbase account has low balance ({Web3.fromWei(coinbase_balance, 'ether')} ETH)")
+                    
+                    # Send transaction
+                    tx_hash = self.w3.eth.send_transaction({
+                        'from': coinbase,
+                        'to': self.wallet.getAccountAddressByName(account_name),
+                        'value': Web3.toWei(0.1, 'ether')
+                    })
+                    
+                    print(f"Funding transaction sent: {tx_hash.hex()}")
+                    print("Waiting for transaction receipt...")
+                    
+                    receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+                    
+                    if receipt['status'] == 1:
+                        print(f"Successfully funded {account_name} with 0.1 ETH")
+                    else:
+                        self.fail(f"Funding transaction failed: {receipt}")
+                        
+                    # Wait and check new balance
+                    time.sleep(2)
+                    new_balance = self.wallet.getBalanceByName(account_name)
+                    print(f"New balance of {account_name}: {new_balance} ETH")
+                    
+                    if new_balance < 0.01:
+                        self.fail(f"Account {account_name} still has insufficient funds after funding attempt")
+                    
+                except Exception as e:
+                    print(f"Warning: Could not fund account automatically: {str(e)}")
+                    self.fail(f"Test requires {account_name} to have at least 0.01 ETH. Please fund the account manually.")
+        except Exception as e:
+            self.fail(f"Error checking or funding account: {str(e)}")
     
     def test_bidirectional_transfers(self):
         """Test transfers from account1 to account2 and then back"""
