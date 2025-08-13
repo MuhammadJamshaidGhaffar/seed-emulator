@@ -207,7 +207,7 @@ class Wallet:
         print(json.dumps(transaction, indent=2))
 
         signed_tx = self._web3.eth.account.sign_transaction(transaction, key)
-        tx_hash = self._web3.eth.sendRawTransaction(signed_tx.rawTransaction)
+        tx_hash = self._web3.eth.send_raw_transaction(signed_tx.rawTransaction)
         print("Transaction Hash: {}".format(tx_hash.hex()))
 
         if wait:
@@ -272,7 +272,7 @@ class Wallet:
         assert sender is not None, "Sender account does not exist"
  
         if nonce == -1:
-            nonce = self._web3.eth.getTransactionCount(sender.address)
+            nonce = self._web3.eth.get_transaction_count(sender.address)
 
         if maxFeePerGas < 0: 
             maxFeePerGas = self._max_fee
@@ -360,7 +360,7 @@ class Wallet:
         assert sender is not None, "Sender account does not exist"
 
         transaction_info = {
-            'nonce':    self._web3.eth.getTransactionCount(sender.address),
+            'nonce':    self._web3.eth.get_transaction_count(sender.address),
             'from':     sender.address,
             'value':    Web3.toWei(amount, 'ether'),
             'chainId':  self._chain_id,
@@ -458,7 +458,7 @@ class Wallet:
         @returns Return the nonce value.
         """
         checksum_address = Web3.toChecksumAddress(address)
-        return self._web3.eth.getTransactionCount(checksum_address)
+        return self._web3.eth.get_transaction_count(checksum_address)
 
 
     def getNonceByName(self, name:str) -> int:
